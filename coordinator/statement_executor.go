@@ -187,12 +187,11 @@ func (e *StatementExecutor) ExecuteStatement(stmt influxql.Statement, ctx influx
 		return err
 	}
 
-	ctx.Results <- &influxql.Result{
+	return ctx.Send(&influxql.Result{
 		StatementID: ctx.StatementID,
 		Series:      rows,
 		Messages:    messages,
-	}
-	return nil
+	})
 }
 
 func (e *StatementExecutor) executeAlterRetentionPolicyStatement(stmt *influxql.AlterRetentionPolicyStatement) error {
@@ -427,7 +426,7 @@ func (e *StatementExecutor) executeSelectStatement(stmt *influxql.SelectStatemen
 	}
 
 	for {
-		row, err := em.Emit()
+		row, partial, err := em.Emit()
 		if err != nil {
 			return err
 		} else if row == nil {
@@ -452,19 +451,18 @@ func (e *StatementExecutor) executeSelectStatement(stmt *influxql.SelectStatemen
 		result := &influxql.Result{
 			StatementID: ctx.StatementID,
 			Series:      []*models.Row{row},
+			Partial:     partial,
 		}
 
 		// Send results or exit if closing.
-		select {
-		case <-ctx.InterruptCh:
-			return influxql.ErrQueryInterrupted
-		case ctx.Results <- result:
+		if err := ctx.Send(result); err != nil {
+			return err
 		}
 
 		emitted = true
 	}
 
-	// Flush remaing points and emit write count if an INTO statement.
+	// Flush remaining points and emit write count if an INTO statement.
 	if stmt.Target != nil {
 		if err := pointsWriter.Flush(); err != nil {
 			return err
@@ -475,7 +473,7 @@ func (e *StatementExecutor) executeSelectStatement(stmt *influxql.SelectStatemen
 			messages = append(messages, influxql.ReadOnlyWarning(stmt.String()))
 		}
 
-		ctx.Results <- &influxql.Result{
+		return ctx.Send(&influxql.Result{
 			StatementID: ctx.StatementID,
 			Messages:    messages,
 			Series: []*models.Row{{
@@ -483,15 +481,16 @@ func (e *StatementExecutor) executeSelectStatement(stmt *influxql.SelectStatemen
 				Columns: []string{"time", "written"},
 				Values:  [][]interface{}{{time.Unix(0, 0).UTC(), writeN}},
 			}},
-		}
-		return nil
+		})
 	}
 
 	// Always emit at least one result.
 	if !emitted {
-		ctx.Results <- &influxql.Result{
+		if err := ctx.Send(&influxql.Result{
 			StatementID: ctx.StatementID,
 			Series:      make([]*models.Row, 0),
+		}); err != nil {
+			return err
 		}
 	}
 
@@ -678,11 +677,10 @@ func (e *StatementExecutor) executeShowMeasurementsStatement(q *influxql.ShowMea
 
 	measurements, err := e.TSDBStore.Measurements(q.Database, q.Condition)
 	if err != nil || len(measurements) == 0 {
-		ctx.Results <- &influxql.Result{
+		return ctx.Send(&influxql.Result{
 			StatementID: ctx.StatementID,
 			Err:         err,
-		}
-		return nil
+		})
 	}
 
 	if q.Offset > 0 {
@@ -705,21 +703,19 @@ func (e *StatementExecutor) executeShowMeasurementsStatement(q *influxql.ShowMea
 	}
 
 	if len(values) == 0 {
-		ctx.Results <- &influxql.Result{
+		return ctx.Send(&influxql.Result{
 			StatementID: ctx.StatementID,
-		}
-		return nil
+		})
 	}
 
-	ctx.Results <- &influxql.Result{
+	return ctx.Send(&influxql.Result{
 		StatementID: ctx.StatementID,
 		Series: []*models.Row{{
 			Name:    "measurements",
 			Columns: []string{"name"},
 			Values:  values,
 		}},
-	}
-	return nil
+	})
 }
 
 func (e *StatementExecutor) executeShowRetentionPoliciesStatement(q *influxql.ShowRetentionPoliciesStatement) (models.Rows, error) {
@@ -854,11 +850,10 @@ func (e *StatementExecutor) executeShowTagValues(q *influxql.ShowTagValuesStatem
 
 	tagValues, err := e.TSDBStore.TagValues(ctx.Database, q.Condition)
 	if err != nil {
-		ctx.Results <- &influxql.Result{
+		return ctx.Send(&influxql.Result{
 			StatementID: ctx.StatementID,
 			Err:         err,
-		}
-		return nil
+		})
 	}
 
 	emitted := false
@@ -892,17 +887,21 @@ func (e *StatementExecutor) executeShowTagValues(q *influxql.ShowTagValuesStatem
 			row.Values[i] = []interface{}{v.Key, v.Value}
 		}
 
-		ctx.Results <- &influxql.Result{
+		if ctx.Send(&influxql.Result{
 			StatementID: ctx.StatementID,
 			Series:      []*models.Row{row},
+		}); err != nil {
+			return err
 		}
 		emitted = true
 	}
 
 	// Ensure at least one result is emitted.
 	if !emitted {
-		ctx.Results <- &influxql.Result{
+		if err := ctx.Send(&influxql.Result{
 			StatementID: ctx.StatementID,
+		}); err != nil {
+			return err
 		}
 	}
 	return nil

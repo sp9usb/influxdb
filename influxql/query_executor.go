@@ -97,6 +97,17 @@ type ExecutionContext struct {
 	ExecutionOptions
 }
 
+// Send sends a Result to the Results channel and will exit if the query has
+// been interrupted.
+func (ctx *ExecutionContext) Send(result *Result) error {
+	select {
+	case <-ctx.InterruptCh:
+		return ErrQueryInterrupted
+	case ctx.Results <- result:
+	}
+	return nil
+}
+
 // StatementExecutor executes a statement within the QueryExecutor.
 type StatementExecutor interface {
 	// ExecuteStatement executes a statement. Results should be sent to the
