@@ -52,6 +52,7 @@
 - [#7334](https://github.com/influxdata/influxdb/issues/7334): Panic with unread show series iterators during drop database
 - [#7482](https://github.com/influxdata/influxdb/issues/7482): Fix issue where point would be written to wrong shard.
 - [#7431](https://github.com/influxdata/influxdb/issues/7431): Remove /data/process_continuous_queries endpoint.
+- [#7448](https://github.com/influxdata/influxdb/pull/7448): Fix Retention Policy Inconsistencies
 
 ## v1.0.2 [2016-10-05]
 
