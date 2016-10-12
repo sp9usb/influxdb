@@ -357,20 +357,15 @@ func (e *Engine) LoadMetadataIndex(shardID uint64, index *tsdb.DatabaseIndex) er
 	}
 
 	// load metadata from the Cache
-	e.Cache.RLock() // shouldn't need the lock, but just to be safe
-	defer e.Cache.RUnlock()
-
-	for key, entry := range e.Cache.Store() {
-
+	if err := e.Cache.ApplyEntryFn(func(key string, entry *entry) error {
 		fieldType, err := entry.values.InfluxQLType()
 		if err != nil {
 			e.logger.Printf("error getting the data type of values for key %s: %s", key, err.Error())
-			continue
 		}
 
-		if err := e.addToIndexFromKey(shardID, []byte(key), fieldType, index); err != nil {
-			return err
-		}
+		return e.addToIndexFromKey(shardID, []byte(key), fieldType, index)
+	}); err != nil {
+		return err
 	}
 
 	e.traceLogger.Printf("Meta data index for shard %d loaded in %v", shardID, time.Since(now))
@@ -615,7 +610,7 @@ func (e *Engine) ContainsSeries(keys []string) (map[string]bool, error) {
 		keyMap[k] = false
 	}
 
-	for _, k := range e.Cache.Keys() {
+	for _, k := range e.Cache.unsortedKeys() {
 		seriesKey, _ := SeriesAndFieldFromCompositeKey([]byte(k))
 		keyMap[string(seriesKey)] = true
 	}
@@ -687,15 +682,14 @@ func (e *Engine) DeleteSeriesRange(seriesKeys []string, min, max int64) error {
 
 	// find the keys in the cache and remove them
 	walKeys := deleteKeys[:0]
-	e.Cache.RLock()
-	s := e.Cache.Store()
-	for k, _ := range s {
+
+	e.Cache.ApplyEntryFn(func(k string, _ *entry) error {
 		seriesKey, _ := SeriesAndFieldFromCompositeKey([]byte(k))
 		if _, ok := keyMap[string(seriesKey)]; ok {
 			walKeys = append(walKeys, k)
 		}
-	}
-	e.Cache.RUnlock()
+		return nil
+	})
 
 	e.Cache.DeleteRange(walKeys, min, max)
 
