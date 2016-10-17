@@ -949,13 +949,16 @@ func TestServer_Query_MaxSelectSeriesN(t *testing.T) {
 func TestServer_Query_Now(t *testing.T) {
 	t.Parallel()
 	s := OpenServer(NewConfig())
+
 	defer s.Close()
 
 	now := now()
+	tomorrow := tomorrow()
 
 	test := NewTest("db0", "rp0")
 	test.writes = Writes{
 		&Write{data: `cpu,host=server01 value=1.0 ` + strconv.FormatInt(now.UnixNano(), 10)},
+		&Write{data: `cpu,host=server01 value=2.0 ` + strconv.FormatInt(tomorrow.UnixNano(), 10)},
 	}
 
 	test.addQueries([]*Query{
@@ -970,14 +973,19 @@ func TestServer_Query_Now(t *testing.T) {
 			exp:     fmt.Sprintf(`{"results":[{"series":[{"name":"cpu","tags":{"host":"server01"},"columns":["time","value"],"values":[["%s",1]]}]}]}`, now.Format(time.RFC3339Nano)),
 		},
 		&Query{
-			name:    "where with time > now() should return an empty result",
-			command: `SELECT * FROM db0.rp0.cpu where time > now()`,
+			name:    "where with time after last point should return an empty result",
+			command: `SELECT * FROM db0.rp0.cpu where time > ` + strconv.FormatInt(tomorrow.UnixNano(), 10),
 			exp:     `{"results":[{}]}`,
 		},
 		&Query{
-			name:    "where with time > now() with GROUP BY * should return an empty result",
-			command: `SELECT * FROM db0.rp0.cpu where time > now() GROUP BY *`,
+			name:    "where with time after last point with GROUP BY * should return an empty result",
+			command: fmt.Sprintf(`SELECT * FROM db0.rp0.cpu where time > %d GROUP BY *`, tomorrow.UnixNano()),
 			exp:     `{"results":[{}]}`,
+		},
+		&Query{
+			name:    "no where should return all points",
+			command: `SELECT * FROM db0.rp0.cpu`,
+			exp:     fmt.Sprintf(`{"results":[{"series":[{"name":"cpu","columns":["time","host","value"],"values":[["%s","server01",1],["%s","server01",2]]}]}]}`, now.Format(time.RFC3339Nano), tomorrow.Format(time.RFC3339Nano)),
 		},
 	}...)
 

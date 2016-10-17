@@ -522,15 +522,7 @@ func (e *StatementExecutor) createIterators(stmt *influxql.SelectStatement, ctx 
 	}
 
 	if opt.MaxTime.IsZero() {
-		// In the case that we're executing a meta query where the user cannot
-		// specify a time condition, then we expand the default max time
-		// to the maximum possible value, to ensure that data where all points
-		// are in the future are returned.
-		if influxql.Sources(stmt.Sources).HasSystemSource() {
-			opt.MaxTime = time.Unix(0, influxql.MaxTime).UTC()
-		} else {
-			opt.MaxTime = now
-		}
+		opt.MaxTime = time.Unix(0, influxql.MaxTime).UTC()
 	}
 	if opt.MinTime.IsZero() {
 		opt.MinTime = time.Unix(0, influxql.MinTime).UTC()

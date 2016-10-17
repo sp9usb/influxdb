@@ -272,6 +272,10 @@ func yesterday() time.Time {
 	return now().Add(-1 * time.Hour * 24)
 }
 
+func tomorrow() time.Time {
+	return now().Add(time.Hour * 24)
+}
+
 func mustParseTime(layout, value string) time.Time {
 	tm, err := time.Parse(layout, value)
 	if err != nil {
