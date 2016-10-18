@@ -5,6 +5,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -2188,7 +2190,7 @@ func TestFileStore_Stats(t *testing.T) {
 		keyValues{"mem", []tsm1.Value{tsm1.NewValue(0, 1.0)}},
 	}
 
-	_, err := newFileDir(dir, data...)
+	files, err := newFileDir(dir, data...)
 	if err != nil {
 		fatal(t, "creating test files", err)
 	}
@@ -2201,6 +2203,46 @@ func TestFileStore_Stats(t *testing.T) {
 
 	stats := fs.Stats()
 	if got, exp := len(stats), 3; got != exp {
+		t.Fatalf("file count mismatch: got %v, exp %v", got, exp)
+	}
+
+	// Another call should result in the same stats being returned.
+	if got, exp := fs.Stats(), stats; !reflect.DeepEqual(got, exp) {
+		t.Fatalf("got %v, exp %v", got, exp)
+	}
+
+	// Removing one of the files should invalidate the cache.
+	fs.Remove(files[0])
+	if got, exp := len(fs.Stats()), 2; got != exp {
+		t.Fatalf("file count mismatch: got %v, exp %v", got, exp)
+	}
+
+	// Replacing a file should invalidate the cache.
+	replacement := files[2] + "-foo" + ".tmp" // Assumes new files have a .tmp extension
+	os.Rename(files[2], replacement)
+	if err := fs.Replace(files, []string{replacement}); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+
+	var found bool
+	stats = fs.Stats()
+	for _, stat := range stats {
+		if strings.HasSuffix(stat.Path, "-foo") {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatalf("Didn't find %s in stats: %v", "foo", stats)
+	}
+
+	// Adding some files should invalidate the cache.
+	tsmFiles, err := newFiles(dir, data...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs.Add(tsmFiles...)
+	if got, exp := len(fs.Stats()), 4; got != exp {
 		t.Fatalf("file count mismatch: got %v, exp %v", got, exp)
 	}
 }
@@ -2362,4 +2404,38 @@ func fatal(t *testing.T, msg string, err error) {
 
 func tsmFileName(id int) string {
 	return fmt.Sprintf("%09d-%09d.tsm", id, 1)
+}
+
+var fsResult []tsm1.FileStat
+
+func BenchmarkFileStore_Stats(b *testing.B) {
+	dir := MustTempDir()
+	defer os.RemoveAll(dir)
+
+	// Create some TSM files...
+	data := make([]keyValues, 0, 1000)
+	for i := 0; i < 1000; i++ {
+		data = append(data, keyValues{"cpu", []tsm1.Value{tsm1.NewValue(0, 1.0)}})
+	}
+
+	_, err := newFileDir(dir, data...)
+	if err != nil {
+		b.Fatalf("creating benchmark files %v", err)
+	}
+
+	fs := tsm1.NewFileStore(dir)
+	if !testing.Verbose() {
+		fs.SetLogOutput(ioutil.Discard)
+	}
+
+	if err := fs.Open(); err != nil {
+		b.Fatalf("opening file store %v", err)
+	}
+	defer fs.Close()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		fsResult = fs.Stats()
+	}
 }
