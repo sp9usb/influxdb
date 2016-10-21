@@ -31,6 +31,7 @@
 - [#7473](https://github.com/influxdata/influxdb/pull/7473): Align binary math expression streams by time.
 - [#7281](https://github.com/influxdata/influxdb/pull/7281): Add stats for active compactions, compaction errors.
 - [#7496](https://github.com/influxdata/influxdb/pull/7496): Filter out series within shards that do not have data for that series.
+- [#6704](https://github.com/influxdata/influxdb/issues/6704): Optimize first/last when no group by interval is present.
 
 ### Bugfixes
 
